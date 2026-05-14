@@ -4,8 +4,9 @@ __pycache__/
 .env
 .DS_Store
 
-# CSV data files — upload manually to GitHub
-data/
+# Ignore CSV contents — upload manually to GitHub
+data/*
+!data/.gitkeep
 
 # Old single-file output
 floorsheet_data.csv
