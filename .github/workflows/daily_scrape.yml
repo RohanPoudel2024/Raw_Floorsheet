@@ -41,9 +41,17 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           lfs: false
 
-      # ── 2. Set up Git LFS (for pushing new data) ──
+      # ── 2. Set up Git LFS ──
       - name: Set up Git LFS
         run: git lfs install
+
+      # ── 3. Pull ONLY the current month's CSV (not all 1.3 GB of history) ──
+      # This preserves existing monthly data so today's scrape correctly appends
+      - name: Pull current month CSV
+        run: |
+          MONTH=$(TZ="Asia/Kathmandu" date +"%Y_%m")
+          echo "Pulling current month file: data/${MONTH}_floorsheet.csv"
+          git lfs pull --include="data/${MONTH}_floorsheet.csv" || true
 
       # ── 3. Set up Python ──
       - name: Set up Python 3.11
