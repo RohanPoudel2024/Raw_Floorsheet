@@ -1,10 +1,11 @@
 name: Daily Floorsheet Scraper
 
 on:
-  # ── Schedule: Run at 09:30 UTC = 3:15 PM Nepal Time (UTC+5:45) ──
-  # Nepal is UTC+5:45, so 15:15 NPT = 09:30 UTC
+  # ── Schedule: Nepal Time (NPT) = UTC + 5:45 ──
+  # Market closes 3:00 PM NPT → scrape at 3:15 PM NPT
+  # 3:15 PM NPT  =  15:15 - 5:45  =  09:30 UTC
   schedule:
-    - cron: "30 9 * * 1-5"  # Mon–Fri at 09:30 UTC (3:15 PM NPT)
+    - cron: "30 9 * * 1-5"  # Mon–Fri, 09:30 UTC = 3:15 PM NPT ✅
 
   # ── Allow manual trigger from GitHub UI ──
   workflow_dispatch:
@@ -26,42 +27,47 @@ on:
 jobs:
   scrape-and-push:
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # Floorsheet can have many pages — allow up to 2 hours
+    timeout-minutes: 120
+
+    permissions:
+      contents: write  # Required to push CSV data back to repo
 
     steps:
-      # ── 1. Checkout repo with full history (needed for git push) ──
+      # ── 1. Checkout repo ──
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
+          lfs: true  # Pull existing LFS CSV files so scraper can check existing dates
 
-      # ── 2. Set up Python ──
+      # ── 2. Set up Git LFS ──
+      - name: Set up Git LFS
+        run: git lfs install
+
+      # ── 3. Set up Python ──
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
-      # ── 3. Install dependencies ──
+      # ── 4. Install dependencies ──
       - name: Install dependencies
-        run: |
-          pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4
 
-      # ── 4. Configure Git identity ──
+      # ── 5. Configure Git identity ──
       - name: Configure Git
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
 
-      # ── 5. Run the scraper ──
+      # ── 6. Run the scraper ──
       - name: Run Daily Scraper
         run: |
-          # Build command based on workflow inputs or schedule
           CMD="python daily_scraper.py --no-push"
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Manual trigger — respect inputs
             if [ -n "${{ github.event.inputs.date }}" ]; then
               CMD="$CMD --date \"${{ github.event.inputs.date }}\""
             fi
@@ -76,10 +82,20 @@ jobs:
           echo "Running: $CMD"
           eval $CMD
 
-      # NOTE: data/ is in .gitignore — CSVs are uploaded manually to GitHub.
-      # The scraper log is uploaded below for debugging.
+      # ── 7. Commit and push updated CSVs via LFS ──
+      - name: Commit and push data
+        run: |
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No new data scraped (holiday or already up to date)."
+          else
+            TODAY=$(TZ="Asia/Kathmandu" date +"%Y-%m-%d")
+            git commit -m "Auto-scrape floorsheet: ${TODAY} [skip ci]"
+            git push origin main
+            echo "✅ Pushed updated floorsheet data for ${TODAY}"
+          fi
 
-      # ── 7. Upload log as artifact (for debugging) ──
+      # ── 8. Upload log as artifact for debugging ──
       - name: Upload Scraper Log
         uses: actions/upload-artifact@v4
         if: always()
