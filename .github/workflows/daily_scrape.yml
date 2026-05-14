@@ -58,7 +58,7 @@ jobs:
       - name: Run Daily Scraper
         run: |
           # Build command based on workflow inputs or schedule
-          CMD="python daily_scraper.py"
+          CMD="python daily_scraper.py --no-push"
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # Manual trigger — respect inputs
@@ -73,27 +73,11 @@ jobs:
             fi
           fi
 
-          # Always skip internal git push — we handle it in the next step
-          CMD="$CMD --no-push"
-
           echo "Running: $CMD"
           eval $CMD
 
-      # ── 6. Commit and push if data changed ──
-      - name: Commit and Push Data
-        run: |
-          # Stage all CSV data
-          git add data/
-
-          # Check if anything changed
-          if git diff --cached --quiet; then
-            echo "No new data to commit. (Holiday or already up to date)"
-          else
-            TODAY=$(TZ="Asia/Kathmandu" date +"%Y-%m-%d")
-            git commit -m "Auto-update floorsheet: ${TODAY} [skip ci]"
-            git push origin main
-            echo "✅ Pushed updated floorsheet data for ${TODAY}"
-          fi
+      # NOTE: data/ is in .gitignore — CSVs are uploaded manually to GitHub.
+      # The scraper log is uploaded below for debugging.
 
       # ── 7. Upload log as artifact (for debugging) ──
       - name: Upload Scraper Log
