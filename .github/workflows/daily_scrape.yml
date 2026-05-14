@@ -1,0 +1,105 @@
+name: Daily Floorsheet Scraper
+
+on:
+  # ── Schedule: Run at 09:30 UTC = 3:15 PM Nepal Time (UTC+5:45) ──
+  # Nepal is UTC+5:45, so 15:15 NPT = 09:30 UTC
+  schedule:
+    - cron: "30 9 * * 1-5"  # Mon–Fri at 09:30 UTC (3:15 PM NPT)
+
+  # ── Allow manual trigger from GitHub UI ──
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Date to scrape (MM/DD/YYYY). Leave empty for today."
+        required: false
+        default: ""
+      backfill:
+        description: "Run backfill to fill missing dates?"
+        type: boolean
+        required: false
+        default: false
+      backfill_from:
+        description: "Start backfill from date (MM/DD/YYYY). Only used when backfill=true."
+        required: false
+        default: ""
+
+jobs:
+  scrape-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # Floorsheet can have many pages — allow up to 2 hours
+
+    steps:
+      # ── 1. Checkout repo with full history (needed for git push) ──
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Set up Python ──
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # ── 3. Install dependencies ──
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4
+
+      # ── 4. Configure Git identity ──
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
+      # ── 5. Run the scraper ──
+      - name: Run Daily Scraper
+        run: |
+          # Build command based on workflow inputs or schedule
+          CMD="python daily_scraper.py"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual trigger — respect inputs
+            if [ -n "${{ github.event.inputs.date }}" ]; then
+              CMD="$CMD --date \"${{ github.event.inputs.date }}\""
+            fi
+            if [ "${{ github.event.inputs.backfill }}" = "true" ]; then
+              CMD="$CMD --backfill"
+              if [ -n "${{ github.event.inputs.backfill_from }}" ]; then
+                CMD="$CMD --backfill-from \"${{ github.event.inputs.backfill_from }}\""
+              fi
+            fi
+          fi
+
+          # Always skip internal git push — we handle it in the next step
+          CMD="$CMD --no-push"
+
+          echo "Running: $CMD"
+          eval $CMD
+
+      # ── 6. Commit and push if data changed ──
+      - name: Commit and Push Data
+        run: |
+          # Stage all CSV data
+          git add data/
+
+          # Check if anything changed
+          if git diff --cached --quiet; then
+            echo "No new data to commit. (Holiday or already up to date)"
+          else
+            TODAY=$(TZ="Asia/Kathmandu" date +"%Y-%m-%d")
+            git commit -m "Auto-update floorsheet: ${TODAY} [skip ci]"
+            git push origin main
+            echo "✅ Pushed updated floorsheet data for ${TODAY}"
+          fi
+
+      # ── 7. Upload log as artifact (for debugging) ──
+      - name: Upload Scraper Log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scraper-log-${{ github.run_id }}
+          path: daily_scraper.log
+          retention-days: 14

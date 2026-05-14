@@ -1,4 +1,17 @@
 venv/
 __pycache__/
+*.pyc
 .env
+.DS_Store
+
+# Old single-file output
 floorsheet_data.csv
+
+# Temp files
+*.tmp
+
+# Logs (keep locally, don't push)
+daily_scraper.log
+
+# Checkpoint (only needed locally)
+checkpoint.txt
