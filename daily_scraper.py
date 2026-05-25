@@ -33,9 +33,7 @@ from zoneinfo import ZoneInfo  # Python 3.9+
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# ─────────────────────────────────────────────
-# Config
-# ─────────────────────────────────────────────
+
 NEPAL_TZ = ZoneInfo("Asia/Kathmandu")
 MARKET_CLOSE_HOUR = 15          # 3 PM NPT
 DATA_DIR = "data"
@@ -43,9 +41,7 @@ LOG_FILE = "daily_scraper.log"
 SCRAPE_URL = "https://merolagani.com/Floorsheet.aspx"
 CSV_HEADER = ['Date', 'S.N.', 'Transact. No.', 'Symbol', 'Buyer', 'Seller', 'Quantity', 'Rate', 'Amount']
 
-# ─────────────────────────────────────────────
-# Logging
-# ─────────────────────────────────────────────
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -57,9 +53,6 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────
-# HTTP Session
-# ─────────────────────────────────────────────
 def get_session():
     session = requests.Session()
     retry = Retry(
@@ -80,10 +73,6 @@ def get_session():
     })
     return session
 
-
-# ─────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────
 def get_hidden_fields(soup):
     """Extract ASP.NET ViewState and other hidden fields."""
     return {
@@ -146,9 +135,7 @@ def ensure_csv_header(csv_path: str):
         log.info(f"Created new monthly CSV: {csv_path}")
 
 
-# ─────────────────────────────────────────────
-# Core Scraper
-# ─────────────────────────────────────────────
+
 def scrape_one_date(date_str: str, session: requests.Session, soup: BeautifulSoup):
     """
     Scrape all pages for a single date.
@@ -177,7 +164,6 @@ def scrape_one_date(date_str: str, session: requests.Session, soup: BeautifulSou
         log.error(f"Could not load search results for {date_str}")
         return [], soup, False
 
-    # ── Check for data ──
     table = soup.find("table", {"class": "table table-bordered table-striped table-hover sortable"})
     if not table:
         log.info(f"No data table found for {date_str} (holiday or no trading)")
@@ -189,7 +175,6 @@ def scrape_one_date(date_str: str, session: requests.Session, soup: BeautifulSou
         log.info(f"No records found for {date_str} (holiday or no trading)")
         return [], soup, True
 
-    # ── Determine total pages ──
     total_pages = 1
     last_page_link = soup.find("a", title="Last Page")
     if last_page_link:
@@ -250,10 +235,6 @@ def scrape_one_date(date_str: str, session: requests.Session, soup: BeautifulSou
 
     return all_rows, soup, True
 
-
-# ─────────────────────────────────────────────
-# Git Push
-# ─────────────────────────────────────────────
 def git_push(date_str: str, files_changed: list[str]):
     """Stage changed CSV files and push to GitHub."""
     try:
@@ -275,16 +256,13 @@ def git_push(date_str: str, files_changed: list[str]):
 
         # Push
         subprocess.run(["git", "push", "origin", "main"], check=True)
-        log.info(f"✅ Pushed to GitHub: {msg}")
+        log.info(f" Pushed to GitHub: {msg}")
         return True
     except subprocess.CalledProcessError as e:
         log.error(f"Git push failed: {e}")
         return False
 
 
-# ─────────────────────────────────────────────
-# Date Logic
-# ─────────────────────────────────────────────
 def get_target_date(args_date: str | None) -> datetime:
     """
     Determine which date to scrape.
@@ -314,9 +292,6 @@ def get_missing_dates(since_date: datetime) -> list[datetime]:
     return missing
 
 
-# ─────────────────────────────────────────────
-# Main
-# ─────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="Daily Floorsheet Scraper")
     parser.add_argument("--date", type=str, default=None,
@@ -398,13 +373,13 @@ def main():
                 with open(csv_path, "a", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     writer.writerows(rows)
-                log.info(f"✅ {date_str}: {len(rows)} rows saved to {csv_path}")
+                log.info(f" {date_str}: {len(rows)} rows saved to {csv_path}")
                 files_changed.add(csv_path)
             else:
                 log.info(f"⏭  {date_str}: No trading data (holiday/weekend)")
             success_count += 1
         else:
-            log.warning(f"⚠️  {date_str}: Partial failure — will retry next run")
+            log.warning(f"  {date_str}: Partial failure — will retry next run")
             # Still save whatever we got
             if rows:
                 with open(csv_path, "a", newline="", encoding="utf-8") as f:
