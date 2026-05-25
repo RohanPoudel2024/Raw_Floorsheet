@@ -5,7 +5,7 @@ on:
   # Market closes 3:00 PM NPT → scrape at 3:15 PM NPT
   # 3:15 PM NPT  =  15:15 - 5:45  =  09:30 UTC
   schedule:
-    - cron: "30 9 * * 1-5"  # Mon–Fri, 09:30 UTC = 3:15 PM NPT ✅
+    - cron: "30 9 * * 1-5"  # Mon–Fri, 09:30 UTC = 3:15 PM NPT 
 
   # ── Allow manual trigger from GitHub UI ──
   workflow_dispatch:
@@ -100,7 +100,7 @@ jobs:
             TODAY=$(TZ="Asia/Kathmandu" date +"%Y-%m-%d")
             git commit -m "Auto-scrape floorsheet: ${TODAY} [skip ci]"
             git push origin main
-            echo "✅ Pushed updated floorsheet data for ${TODAY}"
+            echo " Pushed updated floorsheet data for ${TODAY}"
           fi
 
       # ── 8. Upload log as artifact for debugging ──
