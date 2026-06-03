@@ -1,0 +1,71 @@
+name: TiDB Backfill — Sync Missing Data
+
+on:
+  # ── Manual trigger only — run whenever you need to catch up ──
+  workflow_dispatch:
+    inputs:
+      from_date:
+        description: "Force sync FROM this date (YYYY-MM-DD). Leave empty to auto-detect from TiDB MAX(trade_date)."
+        required: false
+        default: ""
+      dry_run:
+        description: "Dry run — show what would be synced without writing to TiDB"
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  tidb-backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # ── 1. Checkout (no LFS — tidb_sync.py fetches directly via LFS CDN) ──
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          lfs: false
+
+      # ── 2. Set up Python ──
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # ── 3. Install dependencies ──
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── 4. Run TiDB sync (backfill mode) ──────────────────────────────────
+      # tidb_sync.py auto-detects last synced date from TiDB and
+      # fetches all months from there to today via GitHub LFS CDN.
+      # If from_date is provided, it overrides the auto-detection.
+      - name: Sync missing data to TiDB
+        env:
+          TIDB_HOST:     ${{ secrets.TIDB_HOST }}
+          TIDB_USER:     ${{ secrets.TIDB_USER }}
+          TIDB_PASSWORD: ${{ secrets.TIDB_PASSWORD }}
+          TIDB_DB_NAME:  ${{ secrets.TIDB_DB_NAME }}
+          TIDB_PORT:     ${{ secrets.TIDB_PORT }}
+          # Pass optional overrides as env vars read by tidb_sync.py
+          TIDB_SYNC_FROM_DATE: ${{ github.event.inputs.from_date }}
+          TIDB_SYNC_DRY_RUN:   ${{ github.event.inputs.dry_run }}
+        run: |
+          echo "========================================"
+          echo "  TiDB Backfill"
+          echo "  From date : ${{ github.event.inputs.from_date || 'auto-detect' }}"
+          echo "  Dry run   : ${{ github.event.inputs.dry_run }}"
+          echo "  Triggered : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "========================================"
+          python tidb_sync.py
+
+      # ── 5. Upload sync log ──
+      - name: Upload sync log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tidb-backfill-log-${{ github.run_id }}
+          path: tidb_sync.log
+          retention-days: 30

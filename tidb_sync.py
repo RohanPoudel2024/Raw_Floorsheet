@@ -258,10 +258,14 @@ def parse_csv_rows(text: str, after_date: Optional[str]) -> list:
     return rows
 
 
-def insert_rows(conn, rows: list) -> int:
+def insert_rows(conn, rows: list, dry_run: bool = False) -> int:
     """Bulk-insert rows into floorsheet_raw in batches. Returns count of rows inserted."""
     if not rows:
         return 0
+
+    if dry_run:
+        log.info(f"   [DRY RUN] Would insert {len(rows):,} rows (skipping actual write)")
+        return len(rows)
 
     sql = """
         INSERT IGNORE INTO floorsheet_raw
@@ -294,6 +298,15 @@ def main():
     log.info("TiDB Floorsheet Sync — starting")
     log.info("=" * 60)
 
+    # ── Optional overrides from env (set by backfill workflow) ──────────────
+    force_from_date = os.environ.get("TIDB_SYNC_FROM_DATE", "").strip() or None
+    dry_run = os.environ.get("TIDB_SYNC_DRY_RUN", "false").lower() in ("true", "1", "yes")
+
+    if force_from_date:
+        log.info(f"📌 TIDB_SYNC_FROM_DATE override: syncing from {force_from_date}")
+    if dry_run:
+        log.info("🔍 DRY RUN mode — no data will be written to TiDB")
+
     # ── Validate env vars ─────────────────────────────────────────────────
     required_env = ["TIDB_HOST", "TIDB_USER", "TIDB_PASSWORD"]
     missing = [k for k in required_env if not os.environ.get(k)]
@@ -319,7 +332,13 @@ def main():
         # ── Determine which months to fetch ───────────────────────────────
         today = datetime.utcnow()
 
-        if last_date:
+        # force_from_date overrides the auto-detected last_date
+        if force_from_date:
+            start_dt = datetime.strptime(force_from_date, "%Y-%m-%d")
+            # When forcing a from_date, also override last_date so we re-sync that period
+            last_date = (datetime.strptime(force_from_date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+            log.info(f"📌 Forced start: {force_from_date} (last_date set to {last_date})")
+        elif last_date:
             start_dt = datetime.strptime(last_date, "%Y-%m-%d")
         else:
             # Default: sync from Jan 2025 (adjust as needed)
@@ -346,7 +365,7 @@ def main():
 
             if rows:
                 try:
-                    n = insert_rows(conn, rows)
+                    n = insert_rows(conn, rows, dry_run=dry_run)
                     total_inserted += n
                     log.info(f"   ✅ {year}-{month:02d}: {n:,} rows inserted")
                     # After inserting, advance last_date to the max date we just inserted
