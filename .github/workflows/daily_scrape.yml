@@ -5,7 +5,7 @@ on:
   # Market closes 3:00 PM NPT → scrape at 3:15 PM NPT
   # 3:15 PM NPT  =  15:15 - 5:45  =  09:30 UTC
   schedule:
-    - cron: "30 9 * * 1-5"  # Mon–Fri, 09:30 UTC = 3:15 PM NPT 
+    - cron: "30 9 * * 1-5"  # Mon–Fri, 09:30 UTC = 3:15 PM NPT
 
   # ── Allow manual trigger from GitHub UI ──
   workflow_dispatch:
@@ -23,6 +23,11 @@ on:
         description: "Start backfill from date (MM/DD/YYYY). Only used when backfill=true."
         required: false
         default: ""
+      skip_tidb:
+        description: "Skip TiDB sync? (useful for dry-runs)"
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   scrape-and-push:
@@ -53,24 +58,24 @@ jobs:
           echo "Pulling current month file: data/${MONTH}_floorsheet.csv"
           git lfs pull --include="data/${MONTH}_floorsheet.csv" || true
 
-      # ── 3. Set up Python ──
+      # ── 4. Set up Python ──
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
-      # ── 4. Install dependencies ──
+      # ── 5. Install dependencies ──
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # ── 5. Configure Git identity ──
+      # ── 6. Configure Git identity ──
       - name: Configure Git
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
 
-      # ── 6. Run the scraper ──
+      # ── 7. Run the scraper ──
       - name: Run Daily Scraper
         run: |
           CMD="python daily_scraper.py --no-push"
@@ -90,24 +95,47 @@ jobs:
           echo "Running: $CMD"
           eval $CMD
 
-      # ── 7. Commit and push updated CSVs via LFS ──
+      # ── 8. Commit and push updated CSVs via LFS ──
       - name: Commit and push data
+        id: git_push
         run: |
           git add data/
           if git diff --cached --quiet; then
             echo "No new data scraped (holiday or already up to date)."
+            echo "new_data=false" >> $GITHUB_OUTPUT
           else
             TODAY=$(TZ="Asia/Kathmandu" date +"%Y-%m-%d")
             git commit -m "Auto-scrape floorsheet: ${TODAY} [skip ci]"
             git push origin main
-            echo " Pushed updated floorsheet data for ${TODAY}"
+            echo "✅ Pushed updated floorsheet data for ${TODAY}"
+            echo "new_data=true" >> $GITHUB_OUTPUT
           fi
 
-      # ── 8. Upload log as artifact for debugging ──
+      # ── 9. Sync new data to TiDB Cloud ──────────────────────────────────────
+      # Runs whenever new CSV data was pushed, OR when manually triggered
+      # (even without new data, to allow backfill/recovery runs).
+      - name: Sync to TiDB Cloud
+        if: |
+          steps.git_push.outputs.new_data == 'true' ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.skip_tidb != 'true')
+        env:
+          TIDB_HOST:     ${{ secrets.TIDB_HOST }}
+          TIDB_USER:     ${{ secrets.TIDB_USER }}
+          TIDB_PASSWORD: ${{ secrets.TIDB_PASSWORD }}
+          TIDB_DB_NAME:  ${{ secrets.TIDB_DB_NAME }}
+          TIDB_PORT:     ${{ secrets.TIDB_PORT }}
+        run: |
+          echo "🚀 Starting TiDB sync..."
+          python tidb_sync.py
+          echo "✅ TiDB sync complete"
+
+      # ── 10. Upload logs as artifacts for debugging ──────────────────────────
       - name: Upload Scraper Log
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: scraper-log-${{ github.run_id }}
-          path: daily_scraper.log
+          path: |
+            daily_scraper.log
+            tidb_sync.log
           retention-days: 14
