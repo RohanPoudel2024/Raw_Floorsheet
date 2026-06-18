@@ -100,38 +100,38 @@ def months_between(start: datetime, end: datetime):
 
 
 def fetch_csv_from_lfs(year: int, month: int) -> Optional[str]:
-    """Download a monthly floorsheet CSV from GitHub LFS CDN. Returns raw text or None."""
+    """Read a monthly floorsheet CSV from the local data directory. Returns raw text or None."""
     filename = f"{year}_{month:02d}_floorsheet.csv"
-    url = f"{LFS_BASE_URL}/{filename}"
-    log.info(f"⬇  Fetching {filename} from LFS CDN …")
+    filepath = os.path.join("data", filename)
+    
+    # Fallback if run from parent directory
+    if not os.path.exists(filepath):
+        filepath = os.path.join("Raw_Floorsheet", "data", filename)
+        
+    if not os.path.exists(filepath):
+        log.warning(f"   CSV not found locally: {filepath}")
+        return None
 
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            resp = requests.get(url, timeout=120)
-            if resp.status_code == 404:
-                log.warning(f"   CSV not found (404): {filename}")
-                return None
-            resp.raise_for_status()
+    log.info(f"⬇  Reading {filename} from local disk …")
 
-            # Sanity-check: LFS pointer stubs start with "version https://git-lfs"
-            text = resp.text
-            if text.startswith("version https://git-lfs"):
-                log.error(
-                    f"   Got LFS pointer stub instead of real CSV for {filename}. "
-                    "The file may not be publicly accessible via LFS CDN."
-                )
-                return None
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            text = f.read()
 
-            log.info(f"   ✅ Downloaded {len(text):,} bytes")
-            return text
+        # Sanity-check: LFS pointer stubs start with "version https://git-lfs"
+        if text.startswith("version https://git-lfs"):
+            log.error(
+                f"   Got LFS pointer stub instead of real CSV for {filename}. "
+                "Please run 'git lfs pull' to download the actual data."
+            )
+            return None
 
-        except requests.RequestException as exc:
-            log.warning(f"   Attempt {attempt}/{MAX_RETRIES} failed: {exc}")
-            if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY)
+        log.info(f"   ✅ Read {len(text):,} bytes")
+        return text
 
-    log.error(f"   ❌ All {MAX_RETRIES} attempts failed for {filename}")
-    return None
+    except Exception as exc:
+        log.error(f"   ❌ Failed to read {filepath}: {exc}")
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
